@@ -20,6 +20,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Keyset driver
+    |--------------------------------------------------------------------------
+    |
+    | `control` resolves peers, keys, and grants from the fleet manifest
+    | published and signed by the control plane (api.dashcore.com). `config`
+    | reads the static peers/grants arrays below — local dev and break-glass.
+    */
+
+    'driver' => env('BRIDGE_DRIVER', 'config'),
+
+    'control' => [
+        'url' => env('BRIDGE_CONTROL_URL'),
+        'public_key' => env('BRIDGE_CONTROL_KEY'),
+    ],
+
+    'manifest_ttl' => env('BRIDGE_MANIFEST_TTL', 300),
+
+    /*
+    |--------------------------------------------------------------------------
     | Peers (static keyset driver)
     |--------------------------------------------------------------------------
     |

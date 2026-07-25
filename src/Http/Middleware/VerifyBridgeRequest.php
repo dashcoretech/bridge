@@ -8,6 +8,7 @@ use Dashcore\Bridge\BridgePeer;
 use Dashcore\Bridge\Crypto\CanonicalRequest;
 use Dashcore\Bridge\Crypto\Signature;
 use Dashcore\Bridge\Keys\KeysetResolver;
+use Dashcore\Bridge\Keys\ManifestKeysetResolver;
 use Dashcore\Bridge\Models\BridgeCall;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -32,6 +33,11 @@ class VerifyBridgeRequest
         }
 
         $publicKey = $this->keys->publicKeysFor($app)[$keyId] ?? null;
+
+        if ($publicKey === null && $this->keys instanceof ManifestKeysetResolver) {
+            $this->keys->refresh();
+            $publicKey = $this->keys->publicKeysFor($app)[$keyId] ?? null;
+        }
 
         if ($publicKey === null) {
             $code = $this->keys->publicKeysFor($app) === [] ? 'BRIDGE_UNKNOWN_PEER' : 'BRIDGE_UNKNOWN_KEY';

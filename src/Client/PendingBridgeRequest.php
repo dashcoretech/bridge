@@ -2,8 +2,7 @@
 
 namespace Dashcore\Bridge\Client;
 
-use Dashcore\Bridge\Crypto\CanonicalRequest;
-use Dashcore\Bridge\Crypto\Signature;
+use Dashcore\Bridge\Crypto\BridgeHeaders;
 use Dashcore\Bridge\Exceptions\PeerDeniedScope;
 use Dashcore\Bridge\Exceptions\PeerError;
 use Dashcore\Bridge\Exceptions\PeerRejectedSignature;
@@ -11,7 +10,6 @@ use Dashcore\Bridge\Exceptions\PeerUnreachable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 
 class PendingBridgeRequest
 {
@@ -88,17 +86,9 @@ class PendingBridgeRequest
     {
         $path = static::PREFIX.'/'.ltrim($path, '/');
         $body = $data === null ? '' : json_encode($data);
-        $timestamp = now()->toIso8601ZuluString();
-        $nonce = Str::random(32);
-
-        $canonical = CanonicalRequest::build($method, $path, $query, $timestamp, $nonce, $body);
 
         $pending = Http::withHeaders([
-            'Bridge-App' => config('bridge.app_id'),
-            'Bridge-Key' => config('bridge.key_id'),
-            'Bridge-Time' => $timestamp,
-            'Bridge-Nonce' => $nonce,
-            'Bridge-Signature' => Signature::sign($canonical, config('bridge.private_key')),
+            ...BridgeHeaders::sign($method, $path, $query, $body),
             'Accept' => 'application/json',
         ])->timeout($this->timeout ?? config('bridge.timeout'));
 

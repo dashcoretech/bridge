@@ -3,11 +3,15 @@
 namespace Dashcore\Bridge;
 
 use Dashcore\Bridge\Client\BridgeManager;
+use Dashcore\Bridge\Console\DoctorCommand;
+use Dashcore\Bridge\Console\InstallCommand;
 use Dashcore\Bridge\Console\KeysGenerateCommand;
+use Dashcore\Bridge\Console\KeysRotateCommand;
 use Dashcore\Bridge\Http\Middleware\EnsureBridgeScope;
 use Dashcore\Bridge\Http\Middleware\VerifyBridgeRequest;
 use Dashcore\Bridge\Keys\ConfigKeysetResolver;
 use Dashcore\Bridge\Keys\KeysetResolver;
+use Dashcore\Bridge\Keys\ManifestKeysetResolver;
 use Illuminate\Support\ServiceProvider;
 
 class BridgeServiceProvider extends ServiceProvider
@@ -16,7 +20,10 @@ class BridgeServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/bridge.php', 'bridge');
 
-        $this->app->singleton(KeysetResolver::class, ConfigKeysetResolver::class);
+        $this->app->singleton(KeysetResolver::class, fn ($app) => match ($app['config']->get('bridge.driver', 'config')) {
+            'control' => new ManifestKeysetResolver,
+            default => new ConfigKeysetResolver,
+        });
         $this->app->singleton(BridgeManager::class);
     }
 
@@ -34,7 +41,7 @@ class BridgeServiceProvider extends ServiceProvider
         ], 'bridge-config');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([KeysGenerateCommand::class]);
+            $this->commands([KeysGenerateCommand::class, KeysRotateCommand::class, InstallCommand::class, DoctorCommand::class]);
         }
     }
 }

@@ -13,4 +13,14 @@ class ConfigKeysetResolver implements KeysetResolver
     {
         return config("bridge.peers.{$appId}.url");
     }
+
+    public function grantsFor(string $appId): array
+    {
+        return config("bridge.grants.{$appId}", []);
+    }
+
+    public function peers(): array
+    {
+        return array_values(array_diff(array_keys(config('bridge.peers', [])), [config('bridge.app_id')]));
+    }
 }

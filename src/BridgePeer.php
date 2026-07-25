@@ -10,14 +10,15 @@ class BridgePeer
     ) {}
 
     /**
-     * Abilities granted to this peer by the receiving app, plus the implicit
-     * `bridge.ping` every known peer holds.
+     * Abilities granted to this peer by the receiving app, plus the
+     * implicit abilities every known peer holds: ping, manifest read, and
+     * rotating its own keys.
      *
      * @return list<string>
      */
     public function abilities(): array
     {
-        return [...config("bridge.grants.{$this->appId}", []), 'bridge.ping'];
+        return [...app(Keys\KeysetResolver::class)->grantsFor($this->appId), 'bridge.ping', 'bridge.manifest', 'bridge.rotate'];
     }
 
     public function can(string $ability): bool

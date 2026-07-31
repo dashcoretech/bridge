@@ -92,8 +92,10 @@ class ManifestKeysetResolver implements KeysetResolver
             throw new PeerUnreachable("Control plane returned {$response->status()} for the fleet manifest.");
         }
 
-        $payload = base64_decode($response->json('payload', ''), strict: true);
-        $signature = $response->json('signature', '');
+        // The control plane wraps every response in the platform envelope;
+        // the manifest itself is the `data` member.
+        $payload = base64_decode($response->json('data.payload', ''), strict: true);
+        $signature = $response->json('data.signature', '');
 
         if ($payload === false || ! Signature::verify($payload, $signature, config('bridge.control.public_key'))) {
             throw new PeerUnreachable('Fleet manifest signature verification failed — refusing unsigned fleet state.');

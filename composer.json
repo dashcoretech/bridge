@@ -2,7 +2,6 @@
     "name": "dashcore/bridge",
     "description": "Secure Laravel-to-Laravel API access for the Dashcore fleet: Ed25519 signed requests, deny-by-default grants, replay protection, and audit logging.",
     "type": "library",
-    "version": "0.1.0",
     "license": "proprietary",
     "require": {
         "php": "^8.3",

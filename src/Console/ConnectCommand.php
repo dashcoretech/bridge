@@ -67,6 +67,13 @@ class ConnectCommand extends Command
                     'slug' => $appId,
                     'name' => (string) config('app.name'),
                     'url' => (string) config('app.url'),
+                    // The control plane only distinguishes three tiers, so
+                    // local/testing/anything-else all report as development.
+                    'environment' => match (app()->environment()) {
+                        'production' => 'production',
+                        'staging' => 'staging',
+                        default => 'development',
+                    },
                     'credential_id' => "{$appId}-".now()->format('Y-m'),
                     'public_key' => $pair->publicKey,
                 ]);

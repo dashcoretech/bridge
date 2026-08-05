@@ -3,57 +3,85 @@
 namespace Dashcore\Bridge\Console;
 
 use Dashcore\Bridge\Crypto\Keypair;
+use Dashcore\Bridge\Identity\AppId;
+use Dashcore\Bridge\Identity\IdentityResolver;
+use Dashcore\Bridge\Models\BridgeIdentity;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
- * One-command fleet onboarding: reads BRIDGE_FLEET_KEY from the
- * environment, self-enrolls with the control plane (landing as a pending
- * service awaiting approval), and writes the BRIDGE_* block into .env
- * itself. The keypair is generated here; the private half never leaves
- * this machine.
+ * Zero-paste enrollment. The only environment a fleet app needs is:
+ *
+ *     BRIDGE_FLEET_KEY=fleet_…
+ *     BRIDGE_CONTROL_URL=https://api.dashcore.com
+ *
+ * Everything else — keypair, app id, credential id, the control plane's
+ * public key — is generated here or learned from the enrollment handshake,
+ * then stored encrypted in this app's own database. Safe to leave in the
+ * deploy command: once connected it is a no-op.
  */
 class ConnectCommand extends Command
 {
     protected $signature = 'bridge:connect
-        {--control= : Control plane base URL (defaults to BRIDGE_CONTROL_URL, then https://api.dashcore.com)}
-        {--app-id= : Fleet-wide slug for this app (defaults to a slug of the app name)}
-        {--url= : This app\'s public base URL (defaults to app.url)}
-        {--force : Reconnect even though this install already has bridge credentials}';
+        {--fresh : Discard the stored identity and enroll again}
+        {--app-id= : Override the app ID (defaults to this app\'s hostname)}';
 
-    protected $description = 'Self-enroll this app in the fleet using BRIDGE_FLEET_KEY and write the credentials to .env';
+    protected $description = 'Self-enroll with the control plane using the fleet key and store the identity — nothing to paste';
 
-    public function handle(): int
+    public function handle(IdentityResolver $identity): int
     {
-        $fleetKey = (string) env('BRIDGE_FLEET_KEY', '');
+        if ($identity->isComplete() && ! $this->option('fresh')) {
+            $this->components->info("Already connected as [{$identity->appId()}] — nothing to do. Use --fresh to re-enroll.");
 
-        if ($fleetKey === '') {
-            $this->components->error('BRIDGE_FLEET_KEY is not set. Mint one on the control plane with platform:fleet-key and add it to this app\'s environment.');
+            return self::SUCCESS;
+        }
+
+        $fleetKey = config('bridge.fleet_key');
+        $control = rtrim((string) config('bridge.control.url'), '/');
+
+        if (blank($fleetKey) || blank($control)) {
+            $this->components->error('Connecting needs exactly two environment values:');
+            $this->newLine();
+            $this->line('BRIDGE_FLEET_KEY=fleet_…        # mint one on the control plane: /admin/connect');
+            $this->line('BRIDGE_CONTROL_URL=https://api.dashcore.com');
 
             return self::FAILURE;
         }
 
-        if (config('bridge.app_id') && config('bridge.private_key') && ! $this->option('force')) {
-            $this->components->warn('This install already has bridge credentials ('.config('bridge.app_id').'). Use --force to reconnect with a fresh keypair.');
+        if (blank(config('app.key'))) {
+            $this->components->error('APP_KEY is not set — the stored identity is encrypted with it. Run php artisan key:generate first.');
 
             return self::FAILURE;
         }
 
-        $control = rtrim($this->option('control') ?: env('BRIDGE_CONTROL_URL') ?: 'https://api.dashcore.com', '/');
-        $appId = $this->option('app-id') ?: str(config('app.name'))->slug()->toString();
-        $url = $this->option('url') ?: config('app.url');
-
+        $appId = $this->option('app-id') ?: config('bridge.app_id') ?: AppId::derive();
         $pair = Keypair::generate();
-        $credentialId = "{$appId}-".now()->format('Y-m');
 
-        $response = Http::acceptJson()->post("{$control}/api/bridge/v1/enroll", [
-            'fleet_key' => $fleetKey,
-            'slug' => $appId,
-            'name' => config('app.name'),
-            'url' => $url,
-            'credential_id' => $credentialId,
-            'public_key' => $pair->publicKey,
-        ]);
+        try {
+            $response = Http::acceptJson()
+                ->timeout((int) config('bridge.timeout'))
+                ->post("{$control}/api/bridge/v1/enroll", [
+                    'fleet_key' => $fleetKey,
+                    'slug' => $appId,
+                    'name' => (string) config('app.name'),
+                    'url' => (string) config('app.url'),
+                    'credential_id' => "{$appId}-".now()->format('Y-m'),
+                    'public_key' => $pair->publicKey,
+                ]);
+        } catch (ConnectionException $e) {
+            $this->components->error("Could not reach the control plane at {$control}: {$e->getMessage()}");
+
+            return self::FAILURE;
+        }
+
+        if ($response->status() === 409) {
+            $this->components->error("The control plane already has a live service named [{$appId}].");
+            $this->line("  An admin must allow re-enrollment first: {$control}/admin/connect → [{$appId}] → Re-enroll.");
+
+            return self::FAILURE;
+        }
 
         if ($response->failed()) {
             $this->components->error('Enrollment failed: '.$response->json('error.message', $response->body()));
@@ -61,59 +89,27 @@ class ConnectCommand extends Command
             return self::FAILURE;
         }
 
-        $credentialId = $response->json('data.credential.credential_id', $credentialId);
+        DB::transaction(function () use ($response, $appId, $pair, $control) {
+            // Replace, never append: at most one identity is meaningful.
+            BridgeIdentity::query()->delete();
 
-        $written = $this->writeEnv([
-            'BRIDGE_APP_ID' => $appId,
-            'BRIDGE_KEY_ID' => $credentialId,
-            'BRIDGE_PRIVATE_KEY' => $pair->privateKey,
-            'BRIDGE_DRIVER' => 'control',
-            'BRIDGE_CONTROL_URL' => $control,
-            'BRIDGE_CONTROL_KEY' => (string) $response->json('data.control_plane.public_key'),
-        ]);
+            BridgeIdentity::create([
+                'app_id' => $appId,
+                'key_id' => $response->json('data.credential.credential_id'),
+                'private_key' => $pair->privateKey,
+                'control_url' => $control,
+                'control_public_key' => $response->json('data.control_plane.public_key'),
+            ]);
+        });
 
-        if ($written) {
-            $this->components->info("Connected as [{$appId}] — credentials written to .env.");
-        } else {
-            $this->components->warn('Could not write .env — add the credentials manually:');
-            $this->line("BRIDGE_APP_ID={$appId}");
-            $this->line("BRIDGE_KEY_ID={$credentialId}");
-            $this->line("BRIDGE_PRIVATE_KEY={$pair->privateKey}");
-            $this->line('BRIDGE_DRIVER=control');
-            $this->line("BRIDGE_CONTROL_URL={$control}");
-            $this->line('BRIDGE_CONTROL_KEY='.$response->json('data.control_plane.public_key'));
-        }
+        $identity->forget();
+
+        $this->components->info("Enrolled as [{$appId}]. The identity is stored (encrypted) in this app's database — nothing to paste anywhere.");
 
         if ($response->json('data.service.status') === 'pending') {
-            $this->components->info('This service is PENDING: approve it on the control plane (platform:approve '.$appId.' or the admin panel), then grant abilities with platform:grant.');
+            $this->line("  Awaiting approval: {$control}/admin/connect");
         }
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Append-or-replace the BRIDGE_* lines in this app's .env.
-     *
-     * @param  array<string, string>  $values
-     */
-    private function writeEnv(array $values): bool
-    {
-        $path = base_path('.env');
-
-        if (! is_file($path) || ! is_writable($path)) {
-            return false;
-        }
-
-        $contents = (string) file_get_contents($path);
-
-        foreach ($values as $key => $value) {
-            $line = "{$key}={$value}";
-
-            $contents = preg_match("/^{$key}=.*$/m", $contents) === 1
-                ? (string) preg_replace("/^{$key}=.*$/m", $line, $contents)
-                : rtrim($contents, "\n")."\n{$line}\n";
-        }
-
-        return file_put_contents($path, $contents) !== false;
     }
 }

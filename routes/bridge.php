@@ -1,5 +1,6 @@
 <?php
 
+use Dashcore\Bridge\Identity\IdentityResolver;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('api/bridge/v1')
@@ -7,7 +8,7 @@ Route::prefix('api/bridge/v1')
     ->get('ping', function () {
         return response()->json([
             'pong' => true,
-            'app' => config('bridge.app_id'),
+            'app' => app(IdentityResolver::class)->appId(),
             'time' => now()->toIso8601ZuluString(),
         ], 200, ['Cache-Control' => 'no-store']);
     })

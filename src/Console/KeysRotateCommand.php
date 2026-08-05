@@ -4,6 +4,8 @@ namespace Dashcore\Bridge\Console;
 
 use Dashcore\Bridge\Crypto\BridgeHeaders;
 use Dashcore\Bridge\Crypto\Keypair;
+use Dashcore\Bridge\Identity\IdentityResolver;
+use Dashcore\Bridge\Models\BridgeIdentity;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -21,10 +23,11 @@ class KeysRotateCommand extends Command
             return self::FAILURE;
         }
 
-        $appId = config('bridge.app_id');
+        $identity = app(IdentityResolver::class);
+        $appId = $identity->appId();
         $keyId = "{$appId}-".now()->format('Y-m');
 
-        if ($keyId === config('bridge.key_id')) {
+        if ($keyId === $identity->keyId()) {
             $keyId .= '-'.now()->format('d-His');
         }
 
@@ -47,10 +50,23 @@ class KeysRotateCommand extends Command
             return self::FAILURE;
         }
 
-        $this->components->info('New key registered with the control plane. Update this app\'s environment, then deploy:');
-        $this->newLine();
-        $this->line("BRIDGE_KEY_ID={$keyId}");
-        $this->line("BRIDGE_PRIVATE_KEY={$pair->privateKey}");
+        // A bridge:connect-enrolled app stores its identity; rotation updates
+        // it in place and there is nothing to paste. Env-configured apps get
+        // the env lines exactly as before.
+        $stored = BridgeIdentity::query()->latest('id')->first();
+
+        if ($stored !== null && blank(config('bridge.private_key'))) {
+            $stored->update(['key_id' => $keyId, 'private_key' => $pair->privateKey]);
+            $identity->forget();
+
+            $this->components->info('New key registered and stored — this app is already using it. Nothing to paste.');
+        } else {
+            $this->components->info('New key registered with the control plane. Update this app\'s environment, then deploy:');
+            $this->newLine();
+            $this->line("BRIDGE_KEY_ID={$keyId}");
+            $this->line("BRIDGE_PRIVATE_KEY={$pair->privateKey}");
+        }
+
         $this->newLine();
         $this->components->warn('The old key keeps verifying until it is revoked on the control plane (bridge:revoke-key).');
 

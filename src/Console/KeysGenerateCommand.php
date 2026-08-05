@@ -2,31 +2,82 @@
 
 namespace Dashcore\Bridge\Console;
 
+use App\Bridge\ManifestBuilder;
 use Dashcore\Bridge\Crypto\Keypair;
+use Dashcore\Bridge\Identity\AppId;
 use Illuminate\Console\Command;
 
 class KeysGenerateCommand extends Command
 {
     protected $signature = 'bridge:keys:generate {--app-id= : Fleet-wide slug for this app}';
 
-    protected $description = 'Generate an Ed25519 bridge keypair and print the env block for this app';
+    protected $description = 'Generate an Ed25519 bridge keypair and print complete copy-paste env blocks';
 
     public function handle(): int
     {
-        $appId = $this->option('app-id') ?: str(config('app.name'))->slug()->toString();
+        $appId = $this->option('app-id') ?: AppId::derive();
         $keyId = "{$appId}-".now()->format('Y-m');
         $pair = Keypair::generate();
 
-        $this->components->info('Bridge keypair generated. Add to this app\'s environment:');
+        if ($this->isControlPlane()) {
+            $this->block("BLOCK 1 — this app's environment (Laravel Cloud: dashboard → Environment, then redeploy)", [
+                "BRIDGE_APP_ID={$appId}",
+                "BRIDGE_KEY_ID={$keyId}",
+                "BRIDGE_PRIVATE_KEY={$pair->privateKey}",
+                'BRIDGE_DRIVER=database',
+            ]);
+
+            $this->block("BLOCK 2 — every fleet app's environment (same three lines in each)", [
+                'BRIDGE_DRIVER=control',
+                'BRIDGE_CONTROL_URL='.rtrim((string) config('app.url'), '/'),
+                "BRIDGE_CONTROL_KEY={$pair->publicKey}",
+            ]);
+        } else {
+            $this->block("BLOCK 1 of 1 — this app's environment (dashboard env on a hosting platform, then redeploy)", [
+                "BRIDGE_APP_ID={$appId}",
+                "BRIDGE_KEY_ID={$keyId}",
+                "BRIDGE_PRIVATE_KEY={$pair->privateKey}",
+            ]);
+
+            $this->newLine();
+            $this->line('  The control plane learns this app\'s public key automatically at enrollment');
+            $this->line('  (bridge:install --token=… or bridge:connect). For a static config-driver');
+            $this->line("  peer only, register: '{$keyId}' => '{$pair->publicKey}',");
+        }
+
         $this->newLine();
-        $this->line("BRIDGE_APP_ID={$appId}");
-        $this->line("BRIDGE_KEY_ID={$keyId}");
-        $this->line("BRIDGE_PRIVATE_KEY={$pair->privateKey}");
-        $this->newLine();
-        $this->components->info('Public key — publish to peers / the control plane (never the private key):');
-        $this->newLine();
-        $this->line("'{$keyId}' => '{$pair->publicKey}',");
+        $this->line('  <fg=yellow>Nothing is stored — save both halves now. BRIDGE_PRIVATE_KEY is a secret:</>');
+        $this->line('  <fg=yellow>never commit it, never paste it anywhere except the environment field.</>');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The control plane is the one app that can build and sign the fleet
+     * manifest. Recognising it by that class — not by BRIDGE_DRIVER — matters
+     * because this command runs on a fresh hub *before* any BRIDGE_* env
+     * exists. An explicit `control` driver always means a fleet app.
+     */
+    private function isControlPlane(): bool
+    {
+        return config('bridge.driver') !== 'control'
+            && (config('bridge.driver') === 'database' || class_exists(ManifestBuilder::class));
+    }
+
+    /**
+     * A header, then nothing but paste-ready lines — no commentary inside the
+     * block, so one uninterrupted selection is always valid env content.
+     *
+     * @param  list<string>  $lines
+     */
+    private function block(string $title, array $lines): void
+    {
+        $this->newLine();
+        $this->line("  <options=bold>{$title}</>");
+        $this->newLine();
+
+        foreach ($lines as $line) {
+            $this->line($line);
+        }
     }
 }

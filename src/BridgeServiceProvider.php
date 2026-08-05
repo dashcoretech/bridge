@@ -10,6 +10,7 @@ use Dashcore\Bridge\Console\KeysGenerateCommand;
 use Dashcore\Bridge\Console\KeysRotateCommand;
 use Dashcore\Bridge\Http\Middleware\EnsureBridgeScope;
 use Dashcore\Bridge\Http\Middleware\VerifyBridgeRequest;
+use Dashcore\Bridge\Identity\IdentityResolver;
 use Dashcore\Bridge\Keys\ConfigKeysetResolver;
 use Dashcore\Bridge\Keys\KeysetResolver;
 use Dashcore\Bridge\Keys\ManifestKeysetResolver;
@@ -26,6 +27,7 @@ class BridgeServiceProvider extends ServiceProvider
             default => new ConfigKeysetResolver,
         });
         $this->app->singleton(BridgeManager::class);
+        $this->app->singleton(IdentityResolver::class);
     }
 
     public function boot(): void

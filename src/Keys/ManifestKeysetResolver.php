@@ -5,6 +5,7 @@ namespace Dashcore\Bridge\Keys;
 use Dashcore\Bridge\Crypto\BridgeHeaders;
 use Dashcore\Bridge\Crypto\Signature;
 use Dashcore\Bridge\Exceptions\PeerUnreachable;
+use Dashcore\Bridge\Identity\IdentityResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -26,12 +27,12 @@ class ManifestKeysetResolver implements KeysetResolver
 
     public function grantsFor(string $appId): array
     {
-        return $this->manifest()['grants'][config('bridge.app_id')][$appId] ?? [];
+        return $this->manifest()['grants'][app(IdentityResolver::class)->appId()][$appId] ?? [];
     }
 
     public function peers(): array
     {
-        return array_values(array_diff(array_keys($this->manifest()['apps'] ?? []), [config('bridge.app_id')]));
+        return array_values(array_diff(array_keys($this->manifest()['apps'] ?? []), [app(IdentityResolver::class)->appId()]));
     }
 
     /**
@@ -97,7 +98,7 @@ class ManifestKeysetResolver implements KeysetResolver
         $payload = base64_decode($response->json('data.payload', ''), strict: true);
         $signature = $response->json('data.signature', '');
 
-        if ($payload === false || ! Signature::verify($payload, $signature, config('bridge.control.public_key'))) {
+        if ($payload === false || ! Signature::verify($payload, $signature, (string) app(IdentityResolver::class)->controlPublicKey())) {
             throw new PeerUnreachable('Fleet manifest signature verification failed — refusing unsigned fleet state.');
         }
 

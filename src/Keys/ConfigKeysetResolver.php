@@ -2,6 +2,8 @@
 
 namespace Dashcore\Bridge\Keys;
 
+use Dashcore\Bridge\Identity\IdentityResolver;
+
 class ConfigKeysetResolver implements KeysetResolver
 {
     public function publicKeysFor(string $appId): array
@@ -21,6 +23,9 @@ class ConfigKeysetResolver implements KeysetResolver
 
     public function peers(): array
     {
-        return array_values(array_diff(array_keys(config('bridge.peers', [])), [config('bridge.app_id')]));
+        return array_values(array_diff(
+            array_keys(config('bridge.peers', [])),
+            [app(IdentityResolver::class)->appId()],
+        ));
     }
 }

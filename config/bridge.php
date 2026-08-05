@@ -28,12 +28,27 @@ return [
     | reads the static peers/grants arrays below — local dev and break-glass.
     */
 
-    'driver' => env('BRIDGE_DRIVER', 'config'),
+    // Unset, the driver follows the evidence: a control URL means this is a
+    // fleet app resolving peers from the manifest.
+    'driver' => env('BRIDGE_DRIVER') ?: (env('BRIDGE_CONTROL_URL') ? 'control' : 'config'),
 
     'control' => [
         'url' => env('BRIDGE_CONTROL_URL'),
         'public_key' => env('BRIDGE_CONTROL_KEY'),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fleet key (zero-paste enrollment)
+    |--------------------------------------------------------------------------
+    |
+    | With this and the control URL set, `bridge:connect` self-enrolls: the
+    | keypair is generated locally, the control plane's public key is learned
+    | from the handshake, and the whole identity is stored encrypted in this
+    | app's database. No other BRIDGE_* env is needed.
+    */
+
+    'fleet_key' => env('BRIDGE_FLEET_KEY'),
 
     'manifest_ttl' => env('BRIDGE_MANIFEST_TTL', 300),
 

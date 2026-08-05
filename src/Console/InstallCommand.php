@@ -3,6 +3,7 @@
 namespace Dashcore\Bridge\Console;
 
 use Dashcore\Bridge\Crypto\Keypair;
+use Dashcore\Bridge\Identity\AppId;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -14,13 +15,13 @@ class InstallCommand extends Command
         {--app-id= : Fleet-wide slug for this app}
         {--url= : This app\'s public base URL (defaults to app.url)}';
 
-    protected $description = 'Generate this app\'s bridge keypair, enroll with the control plane, and print the env block';
+    protected $description = '(legacy) Token-based enroll printing an env block — bridge:connect with a fleet key is the supported path';
 
     public function handle(): int
     {
         $token = $this->option('token') ?: $this->ask('Enrollment token (from platform:enroll-token on the control plane)');
         $control = rtrim($this->option('control') ?: $this->ask('Control plane URL', 'https://api.dashcore.com'), '/');
-        $appId = $this->option('app-id') ?: str(config('app.name'))->slug()->toString();
+        $appId = $this->option('app-id') ?: AppId::derive();
         $url = $this->option('url') ?: config('app.url');
 
         // The keypair is generated here and the private half never leaves this

@@ -4,6 +4,7 @@ namespace Dashcore\Bridge\Console;
 
 use Dashcore\Bridge\Client\BridgeManager;
 use Dashcore\Bridge\Exceptions\BridgeException;
+use Dashcore\Bridge\Identity\IdentityResolver;
 use Dashcore\Bridge\Keys\KeysetResolver;
 use Dashcore\Bridge\Keys\ManifestKeysetResolver;
 use Illuminate\Console\Command;
@@ -16,11 +17,12 @@ class DoctorCommand extends Command
 
     public function handle(BridgeManager $bridge, KeysetResolver $keys): int
     {
+        $identity = app(IdentityResolver::class);
         $healthy = true;
 
-        foreach (['app_id', 'key_id', 'private_key'] as $key) {
-            if (blank(config("bridge.{$key}"))) {
-                $this->components->error("bridge.{$key} is not set — run bridge:keys:generate.");
+        foreach (['app_id' => $identity->appId(), 'key_id' => $identity->keyId(), 'private_key' => $identity->privateKey()] as $key => $value) {
+            if (blank($value)) {
+                $this->components->error("No bridge {$key} — enroll with bridge:connect (fleet key) or set it via bridge:keys:generate.");
                 $healthy = false;
             }
         }

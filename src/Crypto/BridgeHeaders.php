@@ -2,6 +2,7 @@
 
 namespace Dashcore\Bridge\Crypto;
 
+use Dashcore\Bridge\BridgeVersion;
 use Dashcore\Bridge\Identity\IdentityResolver;
 use Illuminate\Support\Str;
 
@@ -23,12 +24,17 @@ class BridgeHeaders
 
         $canonical = CanonicalRequest::build($method, $path, $query, $timestamp, $nonce, $body);
 
+        // Version and environment ride along as telemetry only. They are
+        // deliberately excluded from the canonical string so servers that
+        // predate them verify signatures unchanged.
         return [
             'Bridge-App' => $identity->appId(),
             'Bridge-Key' => $identity->keyId(),
             'Bridge-Time' => $timestamp,
             'Bridge-Nonce' => $nonce,
             'Bridge-Signature' => Signature::sign($canonical, $identity->privateKey()),
+            'Bridge-Version' => BridgeVersion::version(),
+            'Bridge-Env' => app()->environment(),
         ];
     }
 }

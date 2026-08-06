@@ -9,17 +9,17 @@ application that owns it.
 
 ## Installing in a connecting site
 
-The package is private, so Composer needs to be told where to find it:
+The package lives in a public repository — no credentials are needed to
+install it, locally or on a build host:
 
 ```bash
-composer config repositories.dashcore-bridge vcs git@github.com:dashcoretech/bridge.git
-composer require dashcore/bridge:^0.1
+composer config repositories.dashcore-bridge vcs https://github.com/dashcoretech/bridge
+composer require dashcore/bridge:^0.5
 ```
 
-This requires Composer to have credentials for the private repository — an SSH
-key locally, and a `COMPOSER_AUTH` entry or deploy key on any host that builds
-the app. A deployment that cannot authenticate will fail at
-`composer install`, not at runtime.
+The repository is deliberately public: nothing secret ships in the package.
+Every real secret — `BRIDGE_PRIVATE_KEY`, fleet keys — lives in each app's
+environment or database, never here.
 
 ## Enrolling
 

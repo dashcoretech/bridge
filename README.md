@@ -23,38 +23,55 @@ environment or database, never here.
 
 ## Enrolling
 
-Mint a one-time token on the control plane:
-
-```bash
-# on api.dashcore.com
-php artisan platform:enroll-token <slug> --company=<company> --name="<Name>"
-```
-
-Redeem it from the connecting site. The keypair is generated locally and the
-private half never crosses the network:
-
-```bash
-php artisan bridge:install --token=<token> --control=https://api.dashcore.com
-```
-
-The command prints an env block to paste in:
+Two environment values, and nothing to paste back:
 
 ```dotenv
-BRIDGE_APP_ID=your-app-slug
-BRIDGE_KEY_ID=your-app-slug-2026-08
-BRIDGE_PRIVATE_KEY=<base64 Ed25519 secret key>
-
-BRIDGE_DRIVER=control
+BRIDGE_FLEET_KEY=fleet_…
 BRIDGE_CONTROL_URL=https://api.dashcore.com
-BRIDGE_CONTROL_KEY=<control plane public key, returned by enrolment>
 ```
 
-`BRIDGE_PRIVATE_KEY` is the only real secret here. `BRIDGE_KEY_ID` and the
-public key are not secrets — they select which key to verify against.
+Mint the fleet key on the control plane at `/admin/connect` — it is the same
+value for every app in the fleet, so there is no per-app secret to distribute.
+Then, on the connecting site:
+
+```bash
+php artisan migrate --force && php artisan bridge:connect
+```
+
+That generates an Ed25519 keypair locally, enrolls with the control plane, and
+stores the identity — app ID, credential ID, private key and the control
+plane's public key — encrypted in this app's own database, under `APP_KEY`. The
+private half never crosses the network. Leave the command in the deploy script:
+once connected it is a no-op.
+
+`BRIDGE_APP_ID`, `BRIDGE_KEY_ID`, `BRIDGE_PRIVATE_KEY`, `BRIDGE_CONTROL_KEY`
+and `BRIDGE_DRIVER` are all learned or derived, so none of them belong in the
+environment. The app ID defaults to the app's hostname; override it with
+`bridge:connect --app-id=<slug>` if it needs to differ.
+
+The site then sits **pending** and cannot authenticate until an admin approves
+it at `/admin/connect` on the control plane. That is the point of the fleet key
+being shared: possession enrolls, a human admits.
 
 Enrolment grants only the baseline permissions (`bridge.manifest`,
 `bridge.rotate`). Anything else is granted deliberately on the control plane
 afterwards; it is never a path to privilege.
+
+Two failures are worth recognising, because neither is fixed by retrying:
+
+- **HTTP 409, "already has a live service named […]"** — that app ID is already
+  enrolled. An admin must click *Re-enroll* for it on the control plane first;
+  `--fresh` will not force past this.
+- **"Already connected as […]"** — nothing to do. Do not reach for `--fresh`,
+  which discards a working identity and requires an admin to re-admit the app.
+
+### Legacy: token enrolment
+
+`platform:enroll-token` on the control plane and `bridge:install --token=` here
+are the superseded path, kept only for apps enrolled before fleet keys existed.
+They print an env block containing `BRIDGE_PRIVATE_KEY` for you to paste. Do not
+use them for a new site — there is no admin surface for minting the tokens any
+more.
 
 ## Calling the platform
 
@@ -107,9 +124,11 @@ window where neither key is accepted.
 
 ## Configuration
 
-`BRIDGE_DRIVER=control` resolves peers, keys and grants from the fleet manifest
-published and signed by the control plane. `config` reads static arrays from
-`config/bridge.php` instead — local development and break-glass only.
+`BRIDGE_DRIVER` is inferred and rarely worth setting: a `BRIDGE_CONTROL_URL`
+means `control`, and its absence means `config`. `control` resolves peers, keys
+and grants from the fleet manifest published and signed by the control plane;
+`config` reads static arrays from `config/bridge.php` instead — local
+development and break-glass only.
 
 `BRIDGE_MANIFEST_TTL` (default 300s) is how long a cached manifest is trusted,
 and therefore how long a revocation elsewhere in the fleet takes to be noticed
@@ -117,6 +136,8 @@ here.
 
 ## Source of truth
 
-This repository is published from `packages/dashcore/bridge` in
-`dashcoretech/api.dashcore.com`. Send changes there; commits pushed here
-directly will be overwritten by the next publish.
+This repository is it. The package was previously published from
+`packages/dashcore/bridge` in `dashcoretech/api.dashcore.com`, and that path
+copy has been removed — the control plane now installs `dashcore/bridge` from
+here like every other app in the fleet. Send changes here, and tag a release;
+nothing overwrites this repository.

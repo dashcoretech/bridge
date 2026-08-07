@@ -1,6 +1,6 @@
 {
     "name": "dashcore/bridge",
-    "description": "Secure Laravel-to-Laravel API access for the Dashcore fleet: Ed25519 signed requests, deny-by-default grants, replay protection, and audit logging.",
+    "description": "Secure Laravel-to-Laravel API access for the Dashcore fleet: Ed25519 signed requests, replay protection, and audit logging. Fleet membership is the authorization.",
     "type": "library",
     "license": "proprietary",
     "require": {
@@ -22,5 +22,22 @@
                 "Bridge": "Dashcore\\Bridge\\Facades\\Bridge"
             }
         }
+    },
+    "require-dev": {
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Dashcore\\Bridge\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest"
     }
 }

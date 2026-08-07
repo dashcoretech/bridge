@@ -72,13 +72,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Inbound grants
+    | Inbound authorization
     |--------------------------------------------------------------------------
     |
-    | Which abilities each peer may exercise against this app. Deny by
-    | default: a peer with no entry here is rejected even with a valid
-    | signature. `bridge.ping` is implicitly granted to every known peer.
+    | Fleet membership is the authorization. A validly signed request comes
+    | from an enrolled member of this fleet, and members may call one
+    | another freely — the ability on each route is a label for the audit
+    | trail and the endpoint directory, not a gate.
+    |
+    | Turn `enforce_scope` on to police abilities individually instead. The
+    | grants below (and those published in the signed manifest) are still
+    | resolved either way, so this is a switch rather than a migration.
     */
+
+    'enforce_scope' => env('BRIDGE_ENFORCE_SCOPE', false),
 
     'grants' => [
         // 'crm' => ['contacts.read', 'contacts.write'],

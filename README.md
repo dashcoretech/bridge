@@ -1,7 +1,8 @@
 # dashcore/bridge
 
 Secure Laravel-to-Laravel API access for the Dashcore fleet: Ed25519 signed
-requests, deny-by-default grants, replay protection, and audit logging.
+requests, replay protection, and audit logging. Fleet membership is the
+authorization.
 
 The calling application holds a private key; the control plane stores only the
 public half. No secret capable of producing a signature ever leaves the
@@ -52,9 +53,8 @@ BRIDGE_CONTROL_KEY=<control plane public key, returned by enrolment>
 `BRIDGE_PRIVATE_KEY` is the only real secret here. `BRIDGE_KEY_ID` and the
 public key are not secrets — they select which key to verify against.
 
-Enrolment grants only the baseline permissions (`bridge.manifest`,
-`bridge.rotate`). Anything else is granted deliberately on the control plane
-afterwards; it is never a path to privilege.
+`BRIDGE_PRIVATE_KEY` is what makes this app a member of the fleet, and
+membership is the authorization — see below.
 
 ## Calling the platform
 
@@ -73,15 +73,39 @@ the body must be transmitted byte-for-byte as it was hashed.
 
 ## Receiving calls from the fleet
 
-Routes protected by bridge auth verify the caller's signature and check the
-declared scope:
-
 ```php
 Route::middleware(['bridge.auth', 'bridge.scope:reports.read'])
     ->get('/api/bridge/v1/reports', ReportController::class);
 ```
 
-The package ships one such route already — `GET /api/bridge/v1/ping`, scoped to
+`bridge.auth` is the gate. It rejects anything that cannot prove fleet
+membership: an unknown app, an unknown or revoked key, a stale timestamp, a
+bad signature, or a reused nonce. All of those are a `401` before your
+controller runs.
+
+`bridge.scope:reports.read` is a **label, not a gate**. Fleet membership is
+the authorization: a caller that has cryptographically proven it is an
+enrolled member may call any endpoint of any other member. The ability names
+the capability in the audit trail and in the fleet's endpoint directory,
+which is what reads it.
+
+That is a deliberate posture, and it rests on revocation rather than
+scoping. Revoke a credential and it leaves the signed manifest, so the
+caller is refused at the door instead of admitted and narrowed afterwards.
+Because the manifest is cached (`BRIDGE_MANIFEST_TTL`, 300s), that is how
+long a revocation takes to reach the whole fleet — the number worth knowing
+if you are relying on it.
+
+To police abilities individually instead:
+
+```env
+BRIDGE_ENFORCE_SCOPE=true
+```
+
+Grants are still resolved from the manifest either way, so this is a switch
+rather than a migration.
+
+The package ships one route already — `GET /api/bridge/v1/ping`, labelled
 `bridge.ping` — so a peer can prove reachability without exposing anything.
 
 ## Checking it works

@@ -1,0 +1,7 @@
+/vendor
+/.phpunit.cache
+.phpunit.result.cache
+.DS_Store
+
+# A library pins nothing: consumers resolve these against their own app.
+composer.lock

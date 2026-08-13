@@ -3,7 +3,9 @@
 namespace Dashcore\Bridge\Console;
 
 use Dashcore\Bridge\Crypto\Keypair;
+use Dashcore\Bridge\Exceptions\InvalidIdentity;
 use Dashcore\Bridge\Identity\AppId;
+use Dashcore\Bridge\Identity\Environment;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -11,9 +13,7 @@ class InstallCommand extends Command
 {
     protected $signature = 'bridge:install
         {--token= : One-time enrollment token minted by the control plane}
-        {--control= : Control plane base URL}
-        {--app-id= : Fleet-wide slug for this app}
-        {--url= : This app\'s public base URL (defaults to app.url)}';
+        {--control= : Control plane base URL}';
 
     protected $description = '(legacy) Token-based enroll printing an env block — bridge:connect with a fleet key is the supported path';
 
@@ -21,8 +21,27 @@ class InstallCommand extends Command
     {
         $token = $this->option('token') ?: $this->ask('Enrollment token (from platform:enroll-token on the control plane)');
         $control = rtrim($this->option('control') ?: $this->ask('Control plane URL', 'https://api.dashcore.com'), '/');
-        $appId = $this->option('app-id') ?: AppId::derive();
-        $url = $this->option('url') ?: config('app.url');
+        // Identity and URL both come from APP_URL — see AppId. Accepting
+        // either by hand is what let a token minted for one app be redeemed
+        // by another.
+        try {
+            $appId = AppId::require();
+        } catch (InvalidIdentity $e) {
+            $this->components->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
+        $url = (string) config('app.url');
+
+        if (! Environment::agree($appId, Environment::host($control))) {
+            $this->components->error(sprintf(
+                'Refusing to enrol across environments: this app is %s and the control plane is %s.',
+                Environment::of($appId), Environment::of(Environment::host($control)),
+            ));
+
+            return self::FAILURE;
+        }
 
         // The keypair is generated here and the private half never leaves this
         // machine — the control plane only ever sees the public key.

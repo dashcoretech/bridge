@@ -4,18 +4,28 @@ namespace Dashcore\Bridge\Console;
 
 use App\Bridge\ManifestBuilder;
 use Dashcore\Bridge\Crypto\Keypair;
+use Dashcore\Bridge\Exceptions\InvalidIdentity;
 use Dashcore\Bridge\Identity\AppId;
 use Illuminate\Console\Command;
 
 class KeysGenerateCommand extends Command
 {
-    protected $signature = 'bridge:keys:generate {--app-id= : Fleet-wide slug for this app}';
+    protected $signature = 'bridge:keys:generate';
 
     protected $description = 'Generate an Ed25519 bridge keypair and print complete copy-paste env blocks';
 
     public function handle(): int
     {
-        $appId = $this->option('app-id') ?: AppId::derive();
+        // Printing a keypair under a guessed identity produces an env block
+        // that enrols the wrong app — the failure this whole change exists to
+        // stop — so refuse rather than guess.
+        try {
+            $appId = AppId::require();
+        } catch (InvalidIdentity $e) {
+            $this->components->error($e->getMessage());
+
+            return self::FAILURE;
+        }
         $keyId = "{$appId}-".now()->format('Y-m');
         $pair = Keypair::generate();
 

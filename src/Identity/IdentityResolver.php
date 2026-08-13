@@ -20,9 +20,37 @@ class IdentityResolver
 
     private ?BridgeIdentity $stored = null;
 
+    /**
+     * Who this app is on the fleet.
+     *
+     * The hostname in APP_URL is the answer, and BRIDGE_APP_ID may only agree
+     * with it. It used to win outright, which is how travis.dashcore.com kept
+     * signing as `executiveos` — an identity in its env from an enrolment run
+     * long before, which no amount of re-enrolling would have displaced,
+     * because this method never consulted the URL at all.
+     *
+     * A configured value that disagrees is ignored rather than obeyed, and
+     * ignored loudly: it is a leftover from a copied env in every case seen so
+     * far, and honouring it means impersonating another member.
+     */
     public function appId(): ?string
     {
-        return config('bridge.app_id') ?: $this->stored()?->app_id;
+        $derived = AppId::derive();
+        $configured = config('bridge.app_id') ?: null;
+
+        if ($configured !== null && $derived !== null && $configured !== $derived) {
+            logger()->warning('bridge: BRIDGE_APP_ID disagrees with APP_URL and is being ignored', [
+                'configured' => $configured,
+                'derived' => $derived,
+                'hint' => 'Remove BRIDGE_APP_ID; the hostname in APP_URL is the identity.',
+            ]);
+        }
+
+        // Falling back to the configured value when the URL cannot supply one
+        // keeps an app whose APP_URL is unset running on its existing
+        // credential rather than losing its identity mid-request. Enrolment
+        // refuses that state; signing does not have to.
+        return $derived ?: ($configured ?: $this->stored()?->app_id);
     }
 
     public function keyId(): ?string

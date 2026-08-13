@@ -4,6 +4,8 @@ namespace Dashcore\Bridge\Console;
 
 use Dashcore\Bridge\Crypto\Keypair;
 use Dashcore\Bridge\Identity\AppId;
+use Dashcore\Bridge\Identity\Environment;
+use Dashcore\Bridge\Exceptions\InvalidIdentity;
 use Dashcore\Bridge\Identity\IdentityResolver;
 use Dashcore\Bridge\Models\BridgeIdentity;
 use Illuminate\Console\Command;
@@ -25,8 +27,7 @@ use Illuminate\Support\Facades\Http;
 class ConnectCommand extends Command
 {
     protected $signature = 'bridge:connect
-        {--fresh : Discard the stored identity and enroll again}
-        {--app-id= : Override the app ID (defaults to this app\'s hostname)}';
+        {--fresh : Discard the stored identity and enroll again}';
 
     protected $description = 'Self-enroll with the control plane using the fleet key and store the identity — nothing to paste';
 
@@ -56,7 +57,35 @@ class ConnectCommand extends Command
             return self::FAILURE;
         }
 
-        $appId = $this->option('app-id') ?: config('bridge.app_id') ?: AppId::derive();
+        // The hostname is the identity, full stop. No --app-id, no
+        // BRIDGE_APP_ID: a slug supplied independently of the URL is how one
+        // app ends up enrolled under another app's name, which is precisely
+        // what happened here.
+        try {
+            $appId = AppId::require();
+        } catch (InvalidIdentity $e) {
+            $this->components->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
+        // Local and production are separate fleets that happen to run the same
+        // code. A laptop must not end up holding a credential the production
+        // manifest accepts, and the only thing that would otherwise stop it is
+        // somebody noticing.
+        $controlHost = Environment::host($control);
+
+        if (! Environment::agree($appId, $controlHost)) {
+            $this->components->error(sprintf(
+                'Refusing to enrol across environments: this app is %s (%s) and the control plane is %s (%s).',
+                Environment::of($appId), $appId,
+                Environment::of($controlHost), $controlHost,
+            ));
+            $this->line('  Point BRIDGE_CONTROL_URL at the control plane for this environment, or fix APP_URL.');
+
+            return self::FAILURE;
+        }
+
         $pair = Keypair::generate();
 
         try {
@@ -67,13 +96,14 @@ class ConnectCommand extends Command
                     'slug' => $appId,
                     'name' => (string) config('app.name'),
                     'url' => (string) config('app.url'),
-                    // The control plane only distinguishes three tiers, so
-                    // local/testing/anything-else all report as development.
-                    'environment' => match (app()->environment()) {
-                        'production' => 'production',
-                        'staging' => 'staging',
-                        default => 'development',
-                    },
+                    // Derived from the hostname, not APP_ENV. APP_ENV is a
+                    // second source of truth that can disagree with the URL —
+                    // a production-flagged app on a .test host would otherwise
+                    // report itself into the wrong fleet — and the hostname is
+                    // the one the identity is already built from.
+                    'environment' => Environment::of($appId) === Environment::LOCAL
+                        ? 'development'
+                        : (app()->environment('staging') ? 'staging' : 'production'),
                     'credential_id' => "{$appId}-".now()->format('Y-m'),
                     'public_key' => $pair->publicKey,
                 ]);

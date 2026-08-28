@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # This package declares "php": "^8.3" and is installed into twelve
+        # applications, so that constraint is a promise to consumers rather
+        # than a note to ourselves. The dev machines only ever run 8.5, which
+        # means the bottom of the range was never once exercised. Both
+        # orchestra/testbench ^11 and pestphp/pest ^4 allow ^8.3, so a full
+        # 8.3 leg genuinely resolves — if it fails, the constraint is wrong
+        # and should be raised, not the job dropped.
+        php-version: ['8.3', '8.4', '8.5']
+
+    name: PHP ${{ matrix.php-version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          # sodium is the whole point of this package — every fleet request is
+          # Ed25519-signed. sqlite is what Testbench runs the suite against.
+          extensions: sodium, sqlite3, pdo_sqlite, mbstring
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ matrix.php-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.php-version }}-
+
+      # `update`, not `install`: a library deliberately ships no composer.lock,
+      # so there is nothing to install from. This also means each leg resolves
+      # the dependency tree its own PHP version allows, which is the point.
+      - name: Install dependencies
+        run: composer update --no-interaction --prefer-dist --no-progress
+
+      - name: Run tests
+        run: vendor/bin/pest

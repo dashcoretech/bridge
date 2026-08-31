@@ -121,3 +121,25 @@ it('discovers dated columns from the schema rather than a list', function () {
     expect($map['demo_campaigns'])->toEqualCanonicalizing(['starts_on', 'created_at', 'updated_at'])
         ->and($map['demo_leads'])->toEqualCanonicalizing(['last_activity_at', 'created_at', 'updated_at']);
 });
+
+it('ignores its own call log, which would otherwise pin the anchor to now', function () {
+    // bridge_calls gains a row on every inbound request, so in any app that is
+    // genuinely part of a fleet its newest created_at is always seconds old.
+    // Counted as an anchor, it reports "already current" across a dozen
+    // applications whose demo data is a week stale — which is how this shipped
+    // the first time.
+    // The table is real here: the package's own migrations create it.
+    DB::table('bridge_calls')->insert([
+        'caller_app' => 'executiveos',
+        'method' => 'GET',
+        'path' => '/api/bridge/v1/ping',
+        'ability' => 'bridge.ping',
+        'outcome' => 'ok',
+        'created_at' => now(),
+    ]);
+
+    $shifter = app(DateShifter::class);
+
+    expect(array_keys($shifter->map()))->not->toContain('bridge_calls')
+        ->and($shifter->drift($shifter->map()))->toBe(23);
+});

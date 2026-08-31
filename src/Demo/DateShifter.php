@@ -39,6 +39,16 @@ class DateShifter
         'jobs', 'job_batches', 'failed_jobs', 'password_reset_tokens',
         'telescope_entries', 'telescope_entries_tags', 'telescope_monitoring',
         'pulse_values', 'pulse_entries', 'pulse_aggregates',
+
+        // This package's own tables, and they matter more than the rest.
+        // `bridge_calls` gains a row on every inbound request, so its newest
+        // created_at is always a few seconds ago — which pins the anchor to
+        // now and makes the drift zero in every app that is actually part of a
+        // fleet. Left in, this command reports "already current" across a
+        // dozen applications whose demo data is a week stale, which is worse
+        // than not shipping it: it answers the question wrongly and
+        // confidently.
+        'bridge_calls', 'bridge_identities',
     ];
 
     /**

@@ -132,4 +132,17 @@ return [
         'enabled' => (bool) env('BRIDGE_HEALTH_ENABLED', true),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | The control plane's own app id
+    |--------------------------------------------------------------------------
+    |
+    | Which peer is the hub. Used when this app reports its inbound call log,
+    | so the fleet's traffic graph can be assembled somewhere — no single app
+    | can see more than its own half of it.
+    |
+    */
+
+    'control_app' => env('BRIDGE_CONTROL_APP', 'api'),
+
 ];

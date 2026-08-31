@@ -5,6 +5,7 @@ namespace Dashcore\Bridge;
 use Dashcore\Bridge\Client\BridgeManager;
 use Dashcore\Bridge\Console\ConnectCommand;
 use Dashcore\Bridge\Console\DemoRefreshCommand;
+use Dashcore\Bridge\Console\ReportCallsCommand;
 use Dashcore\Bridge\Console\DoctorCommand;
 use Dashcore\Bridge\Console\InstallCommand;
 use Dashcore\Bridge\Console\KeysGenerateCommand;
@@ -45,7 +46,7 @@ class BridgeServiceProvider extends ServiceProvider
         ], 'bridge-config');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([KeysGenerateCommand::class, KeysRotateCommand::class, InstallCommand::class, ConnectCommand::class, DoctorCommand::class, DemoRefreshCommand::class]);
+            $this->commands([KeysGenerateCommand::class, KeysRotateCommand::class, InstallCommand::class, ConnectCommand::class, DoctorCommand::class, DemoRefreshCommand::class, ReportCallsCommand::class]);
         }
     }
 }

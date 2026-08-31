@@ -145,4 +145,26 @@ return [
 
     'control_app' => env('BRIDGE_CONTROL_APP', 'api'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | What this app reads from its peers
+    |--------------------------------------------------------------------------
+    |
+    | Peer => path => the dot-notation fields this app depends on. Checked by
+    | `bridge:check-contracts`, which fails when a peer stops publishing one.
+    |
+    | This exists because a consumer reading a key its producer does not send
+    | fails silently: the value is null, null renders as an empty panel, and an
+    | empty panel is indistinguishable from a peer with nothing to say. Every
+    | producer-side check stays green throughout. Declaring the dependency is
+    | what turns that into an error somebody sees.
+    |
+    |   'marketing.dashcore.com.test' => [
+    |       '/snapshot' => ['leads.total', 'campaigns'],
+    |   ],
+    |
+    */
+
+    'expects' => [],
+
 ];

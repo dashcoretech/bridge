@@ -113,4 +113,23 @@ return [
 
     'timeout' => env('BRIDGE_TIMEOUT', 10),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Health surface
+    |--------------------------------------------------------------------------
+    |
+    | Serves GET /api/bridge/v1/health, guarded by the `bridge.health` ability
+    | so it is readable only by a peer that has been granted it. On by default:
+    | fleet-wide observability that each app has to opt into is observability
+    | most of the fleet will not have.
+    |
+    | Turn it off in an app that serves its own richer health route at the same
+    | path, so the two never both register it.
+    |
+    */
+
+    'health' => [
+        'enabled' => (bool) env('BRIDGE_HEALTH_ENABLED', true),
+    ],
+
 ];

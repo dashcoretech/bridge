@@ -167,4 +167,60 @@ return [
 
     'expects' => [],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Telemetry — errors and slow routes
+    |--------------------------------------------------------------------------
+    |
+    | Every app records what went wrong inside it and how long its routes took,
+    | in hourly buckets, and ships the closed ones to a collector. No app can
+    | see more than its own half of the fleet, so this is the only arrangement
+    | that makes "is anything broken anywhere" answerable in one place.
+    |
+    | What travels is the shape of a failure — exception class, redacted
+    | message, file, line, route pattern, counts — and never its contents. See
+    | Dashcore\Bridge\Telemetry\Redactor for what is stripped, and note that
+    | it is stripped on write: the raw text stays in that app's own log, on
+    | that app's own disk, which is where it belongs.
+    |
+    */
+
+    'telemetry' => [
+
+        // Recording. Off means no rows are written at all.
+        'enabled' => env('BRIDGE_TELEMETRY', true),
+
+        // Whether to also time ordinary requests, not just record failures.
+        // Separable because the costs differ: error capture writes only when
+        // something is already wrong, request capture touches a row on every
+        // request.
+        'requests' => env('BRIDGE_TELEMETRY_REQUESTS', true),
+
+        // Past this, a request counts as slow. Reported alongside the figures
+        // so the collector can say "slow" in each app's own terms rather than
+        // imposing one number on thirteen apps with very different jobs.
+        'slow_request_ms' => env('BRIDGE_TELEMETRY_SLOW_MS', 1000),
+
+        // The app that collects this — a fleet app key, resolved to this
+        // environment's hostname the way every other peer is.
+        'collector' => env('BRIDGE_TELEMETRY_COLLECTOR', 'health'),
+
+        // How long a reported bucket is kept locally. The local copy exists to
+        // survive a collector that is down, not to be an archive; the
+        // collector holds the history.
+        'retention_days' => env('BRIDGE_TELEMETRY_RETENTION_DAYS', 7),
+
+        // Paths never worth a row. The telemetry ingest itself is on this list
+        // deliberately: a collector that records its own collection endpoint
+        // makes traffic that the next report has to describe, and the table
+        // never settles.
+        'ignore' => [
+            'api/bridge/v1/ping',
+            'api/bridge/v1/health',
+            'api/bridge/v1/telemetry',
+            'up',
+        ],
+
+    ],
+
 ];

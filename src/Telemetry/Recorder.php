@@ -131,11 +131,25 @@ final class Recorder
      * between two workers is the common case here, not the rare one — and the
      * unique index is the only thing that can actually settle it. A `SELECT`
      * first would be wrong under exactly the concurrency this table is for.
+     *
+     * The insert runs inside its own transaction, and that is not decoration.
+     * On PostgreSQL a failed statement poisons the *enclosing* transaction:
+     * every subsequent query returns `25P02 current transaction is aborted`
+     * until someone rolls back. So catching the unique violation is not enough
+     * — by the time the exception is caught, the caller's transaction is
+     * already dead, and this class would have done exactly what its docblock
+     * promises it cannot: broken the request it was only supposed to observe.
+     *
+     * Laravel issues a `SAVEPOINT` rather than a `BEGIN` when a transaction is
+     * already open, so the rollback here undoes the failed insert and nothing
+     * else. On SQLite the whole problem is invisible, which is precisely how
+     * it reached an app's test suite before it was noticed: the package tests
+     * on SQLite and the fleet runs PostgreSQL.
      */
     private function bucket(callable $create, callable $increment): void
     {
         try {
-            $create();
+            DB::transaction($create);
         } catch (Throwable) {
             $increment();
         }

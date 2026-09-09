@@ -8,6 +8,7 @@ use Dashcore\Bridge\Telemetry\Redactor;
 use Dashcore\Bridge\Telemetry\TelemetryReporter;
 use Dashcore\Bridge\Testing\InteractsWithBridge;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -110,6 +111,35 @@ it('never lets a logged error escape the recorder', function () {
 
     expect(fn () => app(Recorder::class)->request('GET', '/x', 10, 200))
         ->not->toThrow(Exception::class);
+});
+
+/**
+ * The caller's transaction survives a bucket collision.
+ *
+ * This is the regression that a SQLite-only suite cannot see. On PostgreSQL a
+ * failed statement aborts the enclosing transaction — every later query
+ * returns 25P02 until someone rolls back — so catching the unique violation is
+ * not enough on its own: by then the caller's transaction is already dead, and
+ * the recorder has broken the request it was only supposed to watch. It
+ * reached an app's suite before anyone noticed, and turned 29 unrelated tests
+ * red.
+ *
+ * Asserting the surrounding transaction still works keeps the guarantee
+ * checkable on either driver.
+ */
+it('leaves the caller\'s transaction usable after a bucket collision', function () {
+    $boom = new RuntimeException('twice');
+
+    DB::transaction(function () use ($boom) {
+        // The second of these collides on (fingerprint, window_start).
+        app(Recorder::class)->error('error', 'twice', $boom);
+        app(Recorder::class)->error('error', 'twice', $boom);
+
+        // The caller carries on. Under the bug this throws instead.
+        expect(ErrorGroup::query()->count())->toBe(1);
+    });
+
+    expect(ErrorGroup::query()->first()->count)->toBe(2);
 });
 
 // ─── Redaction ──────────────────────────────────────────────────────────────

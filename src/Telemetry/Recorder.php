@@ -41,6 +41,25 @@ use Throwable;
  */
 final class Recorder
 {
+    /**
+     * Whether a write is already in flight on this process.
+     *
+     * Recording an error can itself cause an error to be logged — a query
+     * listener that logs, a slow-query warning, a connection that fails
+     * mid-insert — and that log re-enters this class before the first call has
+     * returned. Each re-entry writes, which logs, which writes. There is no
+     * natural bottom: `dcos` reproduced it at a hundred and seventy thousand
+     * stack frames and half a gigabyte before PHP gave up.
+     *
+     * So the second call through is dropped. Losing the nested row is the
+     * correct trade — it describes the recorder, not the application — and a
+     * dropped row is a line of a report, where the loop is the process.
+     *
+     * `dcos` reached this conclusion first, for its own database log handler,
+     * and its test is what caught this one.
+     */
+    private bool $recording = false;
+
     public function __construct(private readonly Config $config) {}
 
     /**
@@ -52,9 +71,11 @@ final class Recorder
      */
     public function error(string $level, ?string $message, ?Throwable $throwable = null, ?string $context = null): void
     {
-        if (! $this->config->enabled()) {
+        if (! $this->config->enabled() || $this->recording) {
             return;
         }
+
+        $this->recording = true;
 
         try {
             $file = Redactor::path($throwable?->getFile());
@@ -95,15 +116,22 @@ final class Recorder
         } catch (Throwable) {
             // Recording a failure must never itself fail loudly. A dropped row
             // costs one line of a report; an exception here costs the request.
+        } finally {
+            // `finally`, not the end of `try`: an exception on the way out must
+            // still clear the flag, or the first failure silently switches
+            // recording off for the rest of the process.
+            $this->recording = false;
         }
     }
 
     /** Record one finished request against its route's bucket for this hour. */
     public function request(string $method, string $route, int $durationMs, int $status): void
     {
-        if (! $this->config->enabled()) {
+        if (! $this->config->enabled() || $this->recording) {
             return;
         }
+
+        $this->recording = true;
 
         try {
             $window = $this->window(Carbon::now());
@@ -135,6 +163,8 @@ final class Recorder
             );
         } catch (Throwable) {
             // As above: never at the cost of the request.
+        } finally {
+            $this->recording = false;
         }
     }
 

@@ -177,6 +177,43 @@ it('writes its rows without firing model events', function () {
         ->and($fired)->toBe([]);
 });
 
+/**
+ * Recording an error must not be able to record itself, forever.
+ *
+ * A query listener that logs is the cleanest reproduction: the insert fires a
+ * query event, the event logs, the log re-enters the recorder before the first
+ * call has returned, and that writes again. There is no natural bottom —
+ * `dcos` hit it at a hundred and seventy thousand stack frames and half a
+ * gigabyte before PHP gave up, and it was `dcos`'s own suite that caught this.
+ *
+ * Reaching the assertion at all is most of the point: without the guard this
+ * test does not fail, it exhausts memory and takes the run with it.
+ */
+it('does not recurse when writing a row itself causes logging', function () {
+    DB::listen(function () {
+        Log::error('logged from inside a query');
+    });
+
+    Log::error('primary', ['exception' => new RuntimeException('primary')]);
+
+    // The outer call wrote its row; the nested ones were dropped rather than
+    // looping. One row, and the process survived.
+    expect(ErrorGroup::query()->count())->toBe(1);
+});
+
+it('keeps recording after a write fails', function () {
+    // The guard is cleared in a `finally`. Without that, the first failure
+    // switches recording off for the rest of the process — an app would go
+    // quiet at exactly the moment it started having problems.
+    Schema::rename('bridge_error_groups', 'bridge_error_groups_hidden');
+    app(Recorder::class)->error('error', 'while the table was missing', new RuntimeException('x'));
+    Schema::rename('bridge_error_groups_hidden', 'bridge_error_groups');
+
+    app(Recorder::class)->error('error', 'after', new RuntimeException('y'));
+
+    expect(ErrorGroup::query()->count())->toBe(1);
+});
+
 // ─── Redaction ──────────────────────────────────────────────────────────────
 
 it('strips the things a message should not carry across the fleet', function (string $raw, string $absent) {

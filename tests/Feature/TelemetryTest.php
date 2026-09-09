@@ -214,6 +214,36 @@ it('keeps recording after a write fails', function () {
     expect(ErrorGroup::query()->count())->toBe(1);
 });
 
+it('writes without the connection announcing the query', function () {
+    // One layer below the model-event rule, and the same principle: an app is
+    // entitled to watch its own database and assume what it sees is its own
+    // business. `dcos` logs from a query listener, so every telemetry insert
+    // produced a log entry that then had to be written somewhere — the
+    // recorder generating the traffic it exists to describe.
+    $seen = [];
+
+    DB::listen(function ($query) use (&$seen) {
+        $seen[] = $query->sql;
+    });
+
+    app(Recorder::class)->error('error', 'boom', new RuntimeException('boom'));
+
+    $telemetry = array_filter($seen, fn (string $sql) => str_contains($sql, 'bridge_error_groups'));
+
+    expect(ErrorGroup::query()->count())->toBe(1)
+        ->and($telemetry)->toBe([]);
+});
+
+it('gives the connection its dispatcher back afterwards', function () {
+    // Leaving it unset would be far worse than the problem: the app would lose
+    // query logging entirely from its first error onward, and silently.
+    $before = DB::connection()->getEventDispatcher();
+
+    app(Recorder::class)->error('error', 'boom', new RuntimeException('boom'));
+
+    expect(DB::connection()->getEventDispatcher())->toBe($before);
+});
+
 // ─── Redaction ──────────────────────────────────────────────────────────────
 
 it('strips the things a message should not carry across the fleet', function (string $raw, string $absent) {

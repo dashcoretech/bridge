@@ -192,10 +192,42 @@ final class Recorder
      */
     private function bucket(callable $create, callable $increment): void
     {
+        $this->quietly(function () use ($create, $increment) {
+            try {
+                DB::transaction($create);
+            } catch (Throwable) {
+                $increment();
+            }
+        });
+    }
+
+    /**
+     * Run a write without the connection announcing it.
+     *
+     * The same rule as writing through the query builder rather than the
+     * models, one layer down: an app is entitled to watch its own database and
+     * assume what it sees is its own business. `dcos` listens to queries and
+     * logs from the listener, so every telemetry insert produced a log entry
+     * that then had to be written somewhere — the recorder generating the
+     * traffic it exists to describe.
+     *
+     * The dispatcher is put back in a `finally`. Leaving it unset would be far
+     * worse than the problem: the app would lose query logging entirely from
+     * the first error onward, and would lose it silently.
+     */
+    private function quietly(callable $write): void
+    {
+        $connection = DB::connection();
+        $dispatcher = $connection->getEventDispatcher();
+
+        $connection->unsetEventDispatcher();
+
         try {
-            DB::transaction($create);
-        } catch (Throwable) {
-            $increment();
+            $write();
+        } finally {
+            if ($dispatcher !== null) {
+                $connection->setEventDispatcher($dispatcher);
+            }
         }
     }
 

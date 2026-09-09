@@ -24,6 +24,20 @@ use Throwable;
  * Two workers failing on the same line in the same second is the normal case
  * for this table, and it is the one case where losing a count would mean
  * under-reporting an incident in progress.
+ *
+ * Rows are written through the query builder rather than through the models,
+ * and that is not a style choice. `Model::create()` fires `eloquent.created`,
+ * and an app is entitled to listen to `eloquent.*` — `marketing` does exactly
+ * that, filing every model write as an activity event. Creating telemetry rows
+ * through Eloquent made this package's bookkeeping show up in another app's
+ * record of what its users did, and broke two of its tests by putting three
+ * rows in a table an assertion expected to be empty.
+ *
+ * The general rule is that infrastructure writes are not domain changes and
+ * must not announce themselves as such. Fixing it here fixes it for every app,
+ * including the ones that have not added a listener yet; fixing it by asking
+ * thirteen apps to ignore these classes would be a line each of them could
+ * forget. The models stay, for reading.
  */
 final class Recorder
 {
@@ -57,7 +71,7 @@ final class Recorder
             $window = $this->window($now);
 
             $this->bucket(
-                fn () => ErrorGroup::query()->create([
+                fn () => DB::table((new ErrorGroup)->getTable())->insert([
                     'fingerprint' => $fingerprint,
                     'window_start' => $window,
                     'level' => $level,
@@ -97,7 +111,7 @@ final class Recorder
             $failed = $status >= 500 ? 1 : 0;
 
             $this->bucket(
-                fn () => RouteStat::query()->create([
+                fn () => DB::table((new RouteStat)->getTable())->insert([
                     'method' => $method,
                     'route' => $route,
                     'window_start' => $window,

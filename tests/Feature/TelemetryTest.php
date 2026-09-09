@@ -9,6 +9,7 @@ use Dashcore\Bridge\Telemetry\TelemetryReporter;
 use Dashcore\Bridge\Testing\InteractsWithBridge;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -140,6 +141,40 @@ it('leaves the caller\'s transaction usable after a bucket collision', function 
     });
 
     expect(ErrorGroup::query()->first()->count)->toBe(2);
+});
+
+/**
+ * Recording is not a domain change, and must not announce itself as one.
+ *
+ * An app is entitled to listen to `eloquent.*` — `marketing` does, filing
+ * every model write as an activity event. Creating these rows through Eloquent
+ * put this package's bookkeeping into another app's record of what its users
+ * did, and broke two of its tests by leaving three rows in a table an
+ * assertion expected to be empty.
+ */
+it('writes its rows without firing model events', function () {
+    $fired = [];
+
+    // Only the events that claim something changed. `booting`/`booted` fire
+    // whenever a model class is first touched — including by the assertions
+    // below — and say nothing about a write.
+    Event::listen('eloquent.*', function (string $name) use (&$fired) {
+        $persistence = ['creating', 'created', 'saving', 'saved', 'updating', 'updated', 'deleting', 'deleted'];
+
+        foreach ($persistence as $verb) {
+            if (str_starts_with($name, "eloquent.{$verb}:")) {
+                $fired[] = $name;
+            }
+        }
+    });
+
+    app(Recorder::class)->error('error', 'boom', new RuntimeException('boom'));
+    app(Recorder::class)->request('GET', '/leads/{lead}', 40, 200);
+
+    // The rows are there; the app's event stream never heard about them.
+    expect(ErrorGroup::query()->count())->toBe(1)
+        ->and(RouteStat::query()->count())->toBe(1)
+        ->and($fired)->toBe([]);
 });
 
 // ─── Redaction ──────────────────────────────────────────────────────────────
